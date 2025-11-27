@@ -239,6 +239,160 @@ const runRemover = () => {
     return 1; // 1 image
 };
 
+// 13. Photo Filter (Color Grading and Filters)
+const runPhotoFilter = () => {
+    const size = 512;
+    const pixels = size * size;
+    const data = new Uint8ClampedArray(pixels * 4);
+    
+    // Generate image data
+    for (let i = 0; i < data.length; i++) {
+        data[i] = Math.random() * 255;
+    }
+    
+    // Apply multiple filters
+    // 1. Sepia
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        data[i] = Math.min(255, (r * 0.393) + (g * 0.769) + (b * 0.189));
+        data[i + 1] = Math.min(255, (r * 0.349) + (g * 0.686) + (b * 0.168));
+        data[i + 2] = Math.min(255, (r * 0.272) + (g * 0.534) + (b * 0.131));
+    }
+    
+    // 2. Vignette
+    const centerX = size / 2;
+    const centerY = size / 2;
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const dx = x - centerX;
+            const dy = y - centerY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const vignette = Math.max(0, 1 - distance / (size * 0.7));
+            const idx = (y * size + x) * 4;
+            data[idx] *= vignette;
+            data[idx + 1] *= vignette;
+            data[idx + 2] *= vignette;
+        }
+    }
+    
+    return 1; // 1 image processed
+};
+
+// 15. Ray Tracer (3D Ray Tracing)
+const runRayTracer = () => {
+    const width = 320;
+    const height = 240;
+    const output = new Uint8Array(width * height * 3);
+    
+    // Simple sphere
+    const sphere = { x: 0, y: 0, z: -5, radius: 1 };
+    const light = { x: 2, y: 2, z: 0 };
+    
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            // Ray direction
+            const rx = (x / width - 0.5) * 2;
+            const ry = (y / height - 0.5) * 2;
+            const rz = -1;
+            
+            // Ray-sphere intersection
+            const dx = 0 - sphere.x;
+            const dy = 0 - sphere.y;
+            const dz = 0 - sphere.z;
+            const a = rx * rx + ry * ry + rz * rz;
+            const b = -2 * (rx * dx + ry * dy + rz * dz);
+            const c = dx * dx + dy * dy + dz * dz - sphere.radius * sphere.radius;
+            const discriminant = b * b - 4 * a * c;
+            
+            let color = 0;
+            if (discriminant >= 0) {
+                // Hit! Calculate lighting
+                const t = (-b - Math.sqrt(discriminant)) / (2 * a);
+                const hitX = rx * t;
+                const hitY = ry * t;
+                const hitZ = rz * t;
+                
+                // Normal
+                const nx = hitX - sphere.x;
+                const ny = hitY - sphere.y;
+                const nz = hitZ - sphere.z;
+                const nl = Math.sqrt(nx * nx + ny * ny + nz * nz);
+                
+                // Light direction
+                const lx = (light.x - hitX) / nl;
+                const ly = (light.y - hitY) / nl;
+                const lz = (light.z - hitZ) / nl;
+                
+                // Diffuse
+                const diffuse = Math.max(0, (nx * lx + ny * ly + nz * lz) / nl);
+                color = Math.floor(diffuse * 255);
+            }
+            
+            const idx = (y * width + x) * 3;
+            output[idx] = color;
+            output[idx + 1] = color;
+            output[idx + 2] = color;
+        }
+    }
+    
+    return (width * height) / 1000000; // Mpixels
+};
+
+// 16. Structure from Motion (3D Reconstruction)
+const runStructureFromMotion = () => {
+    const numPoints = 1000;
+    const numViews = 5;
+    
+    // Feature points
+    const points = new Float32Array(numPoints * 3);
+    for (let i = 0; i < points.length; i++) {
+        points[i] = Math.random() * 10 - 5;
+    }
+    
+    // Camera matrices
+    const cameras = [];
+    for (let v = 0; v < numViews; v++) {
+        const camera = new Float32Array(12); // 3x4 matrix
+        for (let i = 0; i < 12; i++) {
+            camera[i] = Math.random() * 2 - 1;
+        }
+        cameras.push(camera);
+    }
+    
+    // Project points and compute reprojection error
+    let totalError = 0;
+    for (let v = 0; v < numViews; v++) {
+        const cam = cameras[v];
+        for (let p = 0; p < numPoints; p++) {
+            const x = points[p * 3];
+            const y = points[p * 3 + 1];
+            const z = points[p * 3 + 2];
+            
+            // Project
+            const px = cam[0] * x + cam[1] * y + cam[2] * z + cam[3];
+            const py = cam[4] * x + cam[5] * y + cam[6] * z + cam[7];
+            const pz = cam[8] * x + cam[9] * y + cam[10] * z + cam[11];
+            
+            if (pz !== 0) {
+                const u = px / pz;
+                const v = py / pz;
+                totalError += u * u + v * v;
+            }
+        }
+    }
+    
+    // Bundle adjustment iteration (simplified)
+    for (let iter = 0; iter < 5; iter++) {
+        for (let i = 0; i < points.length; i++) {
+            points[i] += (Math.random() - 0.5) * 0.01;
+        }
+    }
+    
+    return numPoints / 1000; // Kpoints
+};
+
 
 // Benchmark configurations with base rates for score calculation
 // baseRate: reference rate that yields baseScore (typically 3500)
@@ -256,4 +410,7 @@ export const benchmarks = [
     { id: 'blur', name: 'Background Blur', unit: 'images/sec', fn: runBlur, baseRate: 14.7, baseScore: 3556 },
     { id: 'horizon', name: 'Horizon Detection', unit: 'Mpixels/sec', fn: runHorizon, baseRate: 114.8, baseScore: 3689 },
     { id: 'remover', name: 'Object Remover', unit: 'Mpixels/sec', fn: runRemover, baseRate: 339.1, baseScore: 4410 },
+    { id: 'photo_filter', name: 'Photo Filter', unit: 'images/sec', fn: runPhotoFilter, baseRate: 41.8, baseScore: 4214 },
+    { id: 'ray_tracer', name: 'Ray Tracer', unit: 'Mpixels/sec', fn: runRayTracer, baseRate: 2.94, baseScore: 3037 },
+    { id: 'structure_motion', name: 'Structure from Motion', unit: 'Kpixels/sec', fn: runStructureFromMotion, baseRate: 105.2, baseScore: 3323 },
 ];

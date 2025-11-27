@@ -92,8 +92,8 @@ function animateScore(fromScore, toScore, duration = 500) {
     requestAnimationFrame(update);
 }
 
-// Run single benchmark
-async function runBenchmark(benchmark, iterations = 100) {
+// Run single benchmark - runs 5 times and takes average
+async function runBenchmark(benchmark, iterations = 300) {
     return new Promise((resolve) => {
         const itemEl = document.getElementById(`bench-${benchmark.id}`);
         const scoreEl = itemEl.querySelector('.score-value');
@@ -103,40 +103,59 @@ async function runBenchmark(benchmark, iterations = 100) {
         statusTextEl.textContent = `Running ${benchmark.name}...`;
 
         // Allow UI to update
-        setTimeout(() => {
-            const startTime = performance.now();
-            let operations = 0;
+        setTimeout(async () => {
+            const numRuns = 5;
+            const rates = [];
+            const scores = [];
 
-            // Run the benchmark multiple times
-            for (let i = 0; i < iterations; i++) {
-                operations += benchmark.fn();
+            // Run the benchmark 5 times
+            for (let run = 0; run < numRuns; run++) {
+                statusTextEl.textContent = `Running ${benchmark.name}...`;
+                
+                const startTime = performance.now();
+                let operations = 0;
+
+                // Run the benchmark multiple times
+                for (let i = 0; i < iterations; i++) {
+                    operations += benchmark.fn();
+                }
+
+                const endTime = performance.now();
+                const durationSec = (endTime - startTime) / 1000;
+                const rate = operations / durationSec;
+                rates.push(rate);
+
+                // Calculate score based on base rate and base score
+                const rawScore = (rate / benchmark.baseRate) * benchmark.baseScore;
+                const score = Math.floor(rawScore / 2000);
+                scores.push(score);
+
+                // Small delay between runs
+                if (run < numRuns - 1) {
+                    await new Promise(r => setTimeout(r, 100));
+                }
             }
 
-            const endTime = performance.now();
-            const durationSec = (endTime - startTime) / 1000;
-            const rate = operations / durationSec;
-
-            // Calculate score based on base rate and base score
-            // Score = (actualRate / baseRate) * baseScore / 20000
-            const rawScore = (rate / benchmark.baseRate) * benchmark.baseScore;
-            const score = Math.floor(rawScore / 2000);
+            // Calculate average
+            const avgRate = rates.reduce((a, b) => a + b, 0) / numRuns;
+            const avgScore = Math.floor(scores.reduce((a, b) => a + b, 0) / numRuns);
 
             // Update UI - show both rate and score
             itemEl.classList.remove('active');
             itemEl.classList.add('done');
 
             // Display rate value
-            scoreEl.textContent = rate.toFixed(1);
+            scoreEl.textContent = avgRate.toFixed(1);
 
             // Add score display below the rate
             const scoreDisplay = document.createElement('div');
             scoreDisplay.className = 'item-score-points';
-            scoreDisplay.textContent = score.toLocaleString();
+            scoreDisplay.textContent = avgScore.toLocaleString();
             scoreEl.parentElement.appendChild(scoreDisplay);
 
-            results[benchmark.id] = score;
+            results[benchmark.id] = avgScore;
 
-            resolve(score);
+            resolve(avgScore);
         }, 50);
     });
 }
@@ -205,76 +224,98 @@ async function runAllBenchmarks() {
     }, 10);
 }
 
-// Run multi-core benchmark using Web Workers
-async function runMultiCoreBenchmark(benchmark, iterations = 100) {
-    return new Promise((resolve) => {
-        const itemEl = document.getElementById(`bench-${benchmark.id}`);
-        const scoreEl = itemEl.querySelector('.score-value');
+// Run multi-core benchmark using Web Workers - runs 5 times and takes average
+async function runMultiCoreBenchmark(benchmark, iterations = 300) {
+    const itemEl = document.getElementById(`bench-${benchmark.id}`);
+    const scoreEl = itemEl.querySelector('.score-value');
 
-        itemEl.classList.add('active');
+    itemEl.classList.add('active');
+
+    const numRuns = 5;
+    const rates = [];
+    const scores = [];
+
+    // Run the benchmark 5 times
+    for (let run = 0; run < numRuns; run++) {
         statusTextEl.textContent = `Running ${benchmark.name} (${numCores} cores)...`;
 
-        setTimeout(() => {
-            const workers = [];
-            const results = [];
-            const iterationsPerCore = Math.floor(iterations / numCores);
-            let completedWorkers = 0;
+        const rate = await new Promise((resolve) => {
+            setTimeout(() => {
+                const workers = [];
+                const results = [];
+                const iterationsPerCore = Math.floor(iterations / numCores);
+                let completedWorkers = 0;
 
-            // Create workers for each core
-            for (let i = 0; i < numCores; i++) {
-                const worker = new Worker('worker.js');
-                workers.push(worker);
+                // Create workers for each core
+                for (let i = 0; i < numCores; i++) {
+                    const worker = new Worker('worker.js');
+                    workers.push(worker);
 
-                worker.onmessage = function (e) {
-                    if (e.data.error) {
-                        console.error(e.data.error);
-                        return;
-                    }
+                    worker.onmessage = function (e) {
+                        if (e.data.error) {
+                            console.error(e.data.error);
+                            return;
+                        }
 
-                    results.push(e.data);
-                    completedWorkers++;
+                        results.push(e.data);
+                        completedWorkers++;
 
-                    // When all workers complete
-                    if (completedWorkers === numCores) {
-                        // Calculate total rate across all cores
-                        const totalOperations = results.reduce((sum, r) => sum + r.operations, 0);
-                        const totalDuration = Math.max(...results.map(r => r.duration));
-                        const rate = totalOperations / totalDuration;
+                        // When all workers complete
+                        if (completedWorkers === numCores) {
+                            // Calculate total rate across all cores
+                            const totalOperations = results.reduce((sum, r) => sum + r.operations, 0);
+                            const totalDuration = Math.max(...results.map(r => r.duration));
+                            const rate = totalOperations / totalDuration;
 
-                        // Calculate score
-                        const rawScore = (rate / benchmark.baseRate) * benchmark.baseScore;
-                        const score = Math.floor(rawScore / 2000);
+                            // Cleanup workers
+                            workers.forEach(w => w.terminate());
 
-                        // Update UI
-                        itemEl.classList.remove('active');
-                        itemEl.classList.add('done');
-                        scoreEl.textContent = rate.toFixed(1);
+                            resolve(rate);
+                        }
+                    };
 
-                        const scoreDisplay = document.createElement('div');
-                        scoreDisplay.className = 'item-score-points';
-                        scoreDisplay.textContent = score.toLocaleString();
-                        scoreEl.parentElement.appendChild(scoreDisplay);
+                    worker.onerror = function (error) {
+                        console.error('Worker error:', error);
+                        worker.terminate();
+                    };
 
-                        // Cleanup workers
-                        workers.forEach(w => w.terminate());
+                    // Send work to worker
+                    worker.postMessage({
+                        benchmarkId: benchmark.id,
+                        iterations: iterationsPerCore
+                    });
+                }
+            }, 50);
+        });
 
-                        resolve(score);
-                    }
-                };
+        rates.push(rate);
 
-                worker.onerror = function (error) {
-                    console.error('Worker error:', error);
-                    worker.terminate();
-                };
+        // Calculate score for this run
+        const rawScore = (rate / benchmark.baseRate) * benchmark.baseScore;
+        const score = Math.floor(rawScore / 2000);
+        scores.push(score);
 
-                // Send work to worker
-                worker.postMessage({
-                    benchmarkId: benchmark.id,
-                    iterations: iterationsPerCore
-                });
-            }
-        }, 50);
-    });
+        // Small delay between runs
+        if (run < numRuns - 1) {
+            await new Promise(r => setTimeout(r, 100));
+        }
+    }
+
+    // Calculate average
+    const avgRate = rates.reduce((a, b) => a + b, 0) / numRuns;
+    const avgScore = Math.floor(scores.reduce((a, b) => a + b, 0) / numRuns);
+
+    // Update UI
+    itemEl.classList.remove('active');
+    itemEl.classList.add('done');
+    scoreEl.textContent = avgRate.toFixed(1);
+
+    const scoreDisplay = document.createElement('div');
+    scoreDisplay.className = 'item-score-points';
+    scoreDisplay.textContent = avgScore.toLocaleString();
+    scoreEl.parentElement.appendChild(scoreDisplay);
+
+    return avgScore;
 }
 
 // Run all benchmarks with current mode (single or multi)
@@ -310,11 +351,8 @@ async function runAllBenchmarksWithMode() {
             : await runMultiCoreBenchmark(benchmark);
         completedBenchmarks++;
 
-        // Update total score sum and calculate average
+        // Accumulate score but don't display yet
         totalScoreSum += score;
-        const previousAverage = totalScore;
-        totalScore = Math.round(totalScoreSum / completedBenchmarks);
-        animateScore(previousAverage, totalScore, 300);
 
         // Update progress
         const progress = (completedBenchmarks / totalBenchmarks) * 100;
@@ -323,8 +361,13 @@ async function runAllBenchmarksWithMode() {
         await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Complete
+    // Calculate final average score
+    totalScore = Math.round(totalScoreSum / completedBenchmarks);
+
+    // Complete - now animate and show the total score
     statusTextEl.textContent = 'Complete!';
+    animateScore(0, totalScore, 800);
+
     startBtn.disabled = false;
     isRunning = false;
 
