@@ -13,6 +13,26 @@ let isRunning = false;
 let totalScore = 0;
 const results = {};
 
+// Deterministic PRNG utilities to keep each benchmark workload identical per run
+function createSeededRandom(seed) {
+    let state = seed >>> 0 || 1;
+    return function seededRandom() {
+        state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+        return state / 0x100000000;
+    };
+}
+
+function getDeterministicSeed(benchmarkId, runIndex, baseSeed = 0) {
+    let hash = 2166136261;
+    const input = `${benchmarkId}:${baseSeed}:${runIndex}`;
+    for (let i = 0; i < input.length; i++) {
+        hash ^= input.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    const seed = (hash ^ baseSeed) >>> 0;
+    return seed || 1;
+}
+
 // Initialize benchmark list
 function initBenchmarkList() {
     benchmarkListEl.innerHTML = '';
@@ -85,13 +105,23 @@ async function runBenchmark(benchmark, iterations = 300) {
             // Run the benchmark multiple times
             for (let run = 0; run < numRuns; run++) {
                 statusTextEl.textContent = `Running ${benchmark.name}...`;
-                
+
+                const originalRandom = Math.random;
+                const seededRandom = createSeededRandom(
+                    getDeterministicSeed(benchmark.id, run, benchmark.seed || 0)
+                );
+                Math.random = seededRandom;
+
                 const startTime = performance.now();
                 let operations = 0;
 
-                // Run the benchmark multiple times
-                for (let i = 0; i < iterations; i++) {
-                    operations += benchmark.fn();
+                try {
+                    // Run the benchmark multiple times
+                    for (let i = 0; i < iterations; i++) {
+                        operations += benchmark.fn();
+                    }
+                } finally {
+                    Math.random = originalRandom;
                 }
 
                 const endTime = performance.now();
@@ -101,7 +131,7 @@ async function runBenchmark(benchmark, iterations = 300) {
 
                 // Calculate score based on base rate and base score
                 const rawScore = (rate / benchmark.baseRate) * benchmark.baseScore;
-                const score = Math.floor(rawScore / 2000);
+                const score = Math.floor(rawScore / 1800);
                 scores.push(score);
 
                 // Small delay between runs
@@ -113,11 +143,11 @@ async function runBenchmark(benchmark, iterations = 300) {
             // Remove highest and lowest, then calculate average
             rates.sort((a, b) => a - b);
             scores.sort((a, b) => a - b);
-            
+
             // Remove first (lowest) and last (highest)
             const trimmedRates = rates.slice(1, -1);
             const trimmedScores = scores.slice(1, -1);
-            
+
             const avgRate = trimmedRates.reduce((a, b) => a + b, 0) / trimmedRates.length;
             const avgScore = Math.floor(trimmedScores.reduce((a, b) => a + b, 0) / trimmedScores.length);
 
