@@ -29,23 +29,10 @@
                 </div>
                 <h1>ProBench</h1>
             </div>
-            <div class="device-info" id="deviceInfo">Detecting Device...</div>
         </header>
 
         <main class="main-content">
             <div class="score-card">
-                <!-- Test Mode Tabs -->
-                <div class="mode-tabs">
-                    <button class="mode-tab active" data-mode="single">
-                        <span class="tab-label">Single-Core</span>
-                        <span class="tab-score" id="singleScore">-</span>
-                    </button>
-                    <button class="mode-tab" data-mode="multi">
-                        <span class="tab-label">Multi-Core</span>
-                        <span class="tab-score" id="multiScore">-</span>
-                    </button>
-                </div>
-
                 <div class="score-circle">
                     <svg class="progress-ring" width="200" height="200">
                         <circle class="progress-ring__circle-bg" stroke="rgba(255,255,255,0.1)" stroke-width="8"
@@ -54,7 +41,7 @@
                             fill="transparent" r="90" cx="100" cy="100" />
                     </svg>
                     <div class="score-content">
-                        <span class="score-label" id="scoreLabel">Single-Core Score</span>
+                        <span class="score-label" id="scoreLabel">CPU Score</span>
                         <h2 class="total-score" id="totalScore">0</h2>
                         <span class="status-text" id="statusText">Ready</span>
                     </div>
