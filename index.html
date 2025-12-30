@@ -317,21 +317,21 @@
                 <h2><i class="fas fa-sliders-h"></i> 权重设置</h2>
                 <div class="slider-container">
                     <div class="slider-label">
-                        <span>单核跑分权重: <span class="value" id="singleCoreValue">30%</span></span>
-                        <input type="range" min="0" max="100" value="30" class="slider" id="singleCoreSlider">
+                        <span>单核跑分权重: <span class="value" id="singleCoreValue">70%</span></span>
+                        <input type="range" min="0" max="100" value="70" class="slider" id="singleCoreSlider">
                     </div>
                     <div class="slider-label">
-                        <span>多核跑分权重: <span class="value" id="multiCoreValue">70%</span></span>
-                        <input type="range" min="0" max="100" value="70" class="slider" id="multiCoreSlider">
+                        <span>多核跑分权重: <span class="value" id="multiCoreValue">30%</span></span>
+                        <input type="range" min="0" max="100" value="30" class="slider" id="multiCoreSlider">
                     </div>
                 </div>
                 <div class="weight-summary">
                     <div class="weight-item">
-                        <div class="weight-value" id="singleWeight">30%</div>
+                        <div class="weight-value" id="singleWeight">70%</div>
                         <div class="weight-name">单核跑分权重</div>
                     </div>
                     <div class="weight-item">
-                        <div class="weight-value" id="multiWeight">70%</div>
+                        <div class="weight-value" id="multiWeight">30%</div>
                         <div class="weight-name">多核跑分权重</div>
                     </div>
                     <div class="weight-item">
@@ -433,8 +433,8 @@
         const detailsBody = document.getElementById('detailsBody');
 
         // 初始化权重
-        let singleWeightValue = 30;
-        let multiWeightValue = 70;
+        let singleWeightValue = 70;
+        let multiWeightValue = 30;
 
         // 更新权重显示
         function updateWeightDisplay() {
@@ -501,21 +501,22 @@
         }
 
         // 计算综合得分
+        // 使用固定基准分数：单核3305，多核18221
         function calculateCompositeScore(chips, singleWeight, multiWeight) {
-            // 归一化处理：将分数转换为0-100的范围
-            const maxSingleScore = Math.max(...chips.map(chip => chip.singleScore));
-            const maxMultiScore = Math.max(...chips.map(chip => chip.multiScore));
+            const BASE_SINGLE_SCORE = 3305;
+            const BASE_MULTI_SCORE = 18221;
 
             return chips.map(chip => {
-                const normalizedSingle = (chip.singleScore / maxSingleScore) * 100;
-                const normalizedMulti = (chip.multiScore / maxMultiScore) * 100;
+                // 按照公式: Score = 100 × [singleWeight × (SC/3305) + multiWeight × (MC/18221)]
+                const normalizedSingle = chip.singleScore / BASE_SINGLE_SCORE;
+                const normalizedMulti = chip.multiScore / BASE_MULTI_SCORE;
 
-                const compositeScore = (normalizedSingle * singleWeight + normalizedMulti * multiWeight) / 100;
+                const compositeScore = 100 * ((singleWeight / 100) * normalizedSingle + (multiWeight / 100) * normalizedMulti);
 
                 return {
                     ...chip,
-                    normalizedSingle,
-                    normalizedMulti,
+                    normalizedSingle: normalizedSingle * 100,
+                    normalizedMulti: normalizedMulti * 100,
                     compositeScore
                 };
             });
