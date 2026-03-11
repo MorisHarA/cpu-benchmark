@@ -34,7 +34,8 @@ const editForm = ref({ name: '', industry: '', scale: '' })
 const newTag = ref('')
 const newContact = ref({ role: '', name: '', phone: '', influence: '中' })
 const newProject = ref({ name: '', amount: '', cycle: '', status: '沟通中' })
-const newDoc = ref({ name: '', type: '提案', size: '', access: '全员可见' })
+const newDoc = ref({ name: '', type: '提案', size: '', access: '全员可见', fileData: '' })
+const fileList = ref([]) // 用于存放上传的文件列表
 
 const industryOptions = ['软件/高新技术', '大数据/云计算', '智能制造', '生物医药', '教育科技', '金融服务', '电子商务', '新能源', '农业科技', '人工智能', '其他']
 const scaleOptions = ['1-49人', '50-99人', '100-499人', '500-999人', '1000人以上']
@@ -131,17 +132,55 @@ async function handleRemoveProject(projectId) {
   } catch {}
 }
 
-// ========= 文档管理 =========
+function handleFileChange(uploadFile, uploadFiles) {
+  const file = uploadFile.raw
+  if (!file) return
+  
+  if (file.size > 1024 * 1024) {
+    ElMessage.warning('文件大小不能超过 1MB')
+    fileList.value = []
+    return
+  }
+  
+  fileList.value = uploadFiles
+  newDoc.value.name = file.name
+  newDoc.value.size = (file.size / 1024 / 1024).toFixed(2) + ' MB'
+  
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    newDoc.value.fileData = e.target.result
+  }
+  reader.readAsDataURL(file)
+}
+
 function handleAddDoc() {
   if (!newDoc.value.name) {
     ElMessage.warning('请输入文档名称')
     return
   }
+  if (!newDoc.value.fileData) {
+    ElMessage.warning('请选取文件后再上传')
+    return
+  }
   addDocument(customerId.value, { ...newDoc.value })
   ElMessage.success(`文档「${newDoc.value.name}」已添加`)
-  newDoc.value = { name: '', type: '提案', size: '', access: '全员可见' }
+  newDoc.value = { name: '', type: '提案', size: '', access: '全员可见', fileData: '' }
+  fileList.value = []
   showAddDocDialog.value = false
   loadCustomer()
+}
+
+function handleDownloadDoc(doc) {
+  if (doc.fileData) {
+    const a = document.createElement('a')
+    a.href = doc.fileData
+    a.download = doc.name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  } else {
+    ElMessage.info('该文档暂无附件数据')
+  }
 }
 
 async function handleRemoveDoc(docId) {
@@ -333,7 +372,7 @@ function getStatusType(status) {
                 </div>
               </div>
               <div class="doc-actions">
-                <el-button :icon="'Download'" size="small" text type="primary" />
+                <el-button :icon="'Download'" size="small" text type="primary" @click="handleDownloadDoc(doc)" />
                 <el-button :icon="'Delete'" size="small" text type="danger" @click="handleRemoveDoc(doc.id)" />
               </div>
             </div>
@@ -433,6 +472,26 @@ function getStatusType(status) {
     <!-- 上传文档 -->
     <el-dialog v-model="showAddDocDialog" title="上传文档" width="500px">
       <el-form label-width="80px">
+        <el-form-item label="选择文件" required>
+          <el-upload
+             class="upload-demo"
+             action="#"
+             :auto-upload="false"
+             :on-change="handleFileChange"
+             :file-list="fileList"
+             :limit="1"
+             style="width: 100%"
+          >
+            <template #trigger>
+              <el-button type="primary">选取附件</el-button>
+            </template>
+            <template #tip>
+               <div class="el-upload__tip">
+                 请上传大小不超过 1MB 的文件
+               </div>
+            </template>
+          </el-upload>
+        </el-form-item>
         <el-form-item label="文档名称" required>
           <el-input v-model="newDoc.name" placeholder="如：方案书_V1.pdf" />
         </el-form-item>

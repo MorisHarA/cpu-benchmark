@@ -13,6 +13,7 @@ const visits = ref([])
 const showForm = ref(false)
 
 // 表单
+const fileList = ref([])
 const newVisit = ref({
   date: '',
   method: '上门拜访',
@@ -20,7 +21,8 @@ const newVisit = ref({
   nextAction: '',
   deadline: '',
   owner: 'Sales User',
-  mood: 5
+  mood: 5,
+  media: []
 })
 
 const methodOptions = [
@@ -60,7 +62,7 @@ function handleSubmit() {
     deadline: newVisit.value.deadline,
     owner: newVisit.value.owner,
     mood: newVisit.value.mood,
-    media: []
+    media: newVisit.value.media || []
   })
 
   ElMessage.success('拜访记录已保存！')
@@ -72,9 +74,58 @@ function handleSubmit() {
     nextAction: '',
     deadline: '',
     owner: 'Sales User',
-    mood: 5
+    mood: 5,
+    media: []
   }
+  fileList.value = []
   loadData()
+}
+
+function handleFileChange(uploadFile, uploadFiles) {
+  const file = uploadFile.raw
+  if (!file) return
+  
+  if (file.size > 1024 * 1024) {
+    ElMessage.warning(`文件 ${file.name} 大小不能超过 1MB`)
+    fileList.value = uploadFiles.filter(f => f.uid !== uploadFile.uid)
+    return
+  }
+
+  fileList.value = uploadFiles
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    const isImage = file.type.startsWith('image/')
+    if (!newVisit.value.media) newVisit.value.media = []
+    newVisit.value.media.push({
+      name: file.name,
+      type: isImage ? 'image' : 'file',
+      fileData: e.target.result,
+      uid: uploadFile.uid
+    })
+  }
+  reader.readAsDataURL(file)
+}
+
+function handleRemoveFile(uploadFile, uploadFiles) {
+  fileList.value = uploadFiles
+  if (!newVisit.value.media) return
+  const index = newVisit.value.media.findIndex(m => m.uid === uploadFile.uid || m.name === uploadFile.name)
+  if (index !== -1) {
+    newVisit.value.media.splice(index, 1)
+  }
+}
+
+function handleDownloadMedia(m) {
+  if (m.fileData) {
+    const a = document.createElement('a')
+    a.href = m.fileData
+    a.download = m.name
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+  } else {
+    ElMessage.info('该附件无真实文件数据')
+  }
 }
 
 async function handleDeleteVisit(visitId) {
@@ -156,6 +207,25 @@ function getMethodColor(type) {
             :rows="3"
             placeholder="记录客户当前痛点及提出的新需求..."
           />
+        </el-form-item>
+
+        <el-form-item label="上传附件">
+          <el-upload
+            class="upload-demo"
+            action="#"
+            :auto-upload="false"
+            :on-change="handleFileChange"
+            :on-remove="handleRemoveFile"
+            :file-list="fileList"
+            multiple
+          >
+            <el-button type="primary" size="small">点击选取</el-button>
+            <template #tip>
+              <div class="el-upload__tip">
+                支持上传图片/录音/文档等 (单文件大小不超过 1MB)
+              </div>
+            </template>
+          </el-upload>
         </el-form-item>
 
         <el-divider content-position="left">
@@ -264,6 +334,8 @@ function getMethodColor(type) {
                 effect="plain"
                 size="small"
                 class="media-tag"
+                @click="handleDownloadMedia(m)"
+                style="cursor: pointer"
               >
                 <el-icon>
                   <Picture v-if="m.type === 'image'" />
