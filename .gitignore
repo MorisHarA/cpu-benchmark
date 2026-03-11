@@ -3,8 +3,3 @@ node_modules/
 *.log
 .vscode/
 .idea/
-src/
-index.html
-package.json
-package-lock.json
-vite.config.js
