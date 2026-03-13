@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getCustomers, getVisitsByCustomerId } from './utils/storage'
 
 const route = useRoute()
 const router = useRouter()
 const isCollapse = ref(false)
+
+// 是否登录页
+const isLoginPage = computed(() => route.path === '/login')
 
 const pageTitle = computed(() => {
   const path = route?.path || ''
@@ -25,10 +30,116 @@ const activeMenu = computed(() => {
 const handleMenuSelect = (index: string) => {
   router.push(index)
 }
+
+// ========= 通知系统 =========
+const showNotifications = ref(false)
+const customers = ref([])
+
+onMounted(() => {
+  customers.value = getCustomers()
+})
+
+// 生成通知：基于客户的下一步行动和拜访记录中的 deadline
+const notifications = computed(() => {
+  const notifs = []
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  
+  for (const customer of customers.value) {
+    // 从拜访记录中获取最新的 deadline
+    const visits = getVisitsByCustomerId(customer.id)
+    let deadline = null
+    let nextAction = customer.nextAction || ''
+    
+    if (visits.length > 0) {
+      const latestVisit = visits[0]
+      if (latestVisit.deadline) {
+        deadline = new Date(latestVisit.deadline)
+        deadline.setHours(0, 0, 0, 0)
+        nextAction = latestVisit.nextAction || nextAction
+      }
+    }
+    
+    if (!deadline && customer.lastFollow) {
+      // 如果没有明确的 deadline，基于最后跟进日期 +7天作为默认截止时间
+      deadline = new Date(customer.lastFollow)
+      deadline.setDate(deadline.getDate() + 7)
+      deadline.setHours(0, 0, 0, 0)
+    }
+    
+    if (deadline) {
+      const diffDays = Math.floor((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+      let urgency = 'normal'
+      let urgencyLabel = ''
+      let urgencyType = 'info'
+      
+      if (diffDays < 0) {
+        urgency = 'overdue'
+        urgencyLabel = `已超期 ${Math.abs(diffDays)} 天`
+        urgencyType = 'danger'
+      } else if (diffDays === 0) {
+        urgency = 'today'
+        urgencyLabel = '今天截止'
+        urgencyType = 'danger'
+      } else if (diffDays <= 3) {
+        urgency = 'imminent'
+        urgencyLabel = `还剩 ${diffDays} 天`
+        urgencyType = 'warning'
+      } else {
+        urgency = 'upcoming'
+        urgencyLabel = `还剩 ${diffDays} 天`
+        urgencyType = 'primary'
+      }
+      
+      notifs.push({
+        id: customer.id,
+        customerName: customer.name,
+        nextAction,
+        deadline: deadline.toISOString().slice(0, 10),
+        diffDays,
+        urgency,
+        urgencyLabel,
+        urgencyType
+      })
+    }
+  }
+  
+  // 按紧急程度排序：超期 > 今天 > 临近 > 即将
+  return notifs.sort((a, b) => a.diffDays - b.diffDays)
+})
+
+const notificationCount = computed(() => {
+  return notifications.value.filter(n => n.diffDays <= 3).length
+})
+
+function goToCustomer(id) {
+  showNotifications.value = false
+  router.push(`/customer/${id}`)
+}
+
+// 登出
+async function handleLogout() {
+  try {
+    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    localStorage.removeItem('crm_auth_token')
+    ElMessage.success('已退出登录')
+    router.push('/login')
+  } catch {
+    // cancelled
+  }
+}
 </script>
 
 <template>
-  <el-container class="app-layout">
+  <!-- 登录页直接渲染 -->
+  <router-view v-if="isLoginPage" />
+  
+  <!-- 主布局 -->
+  <el-container v-else class="app-layout">
     <el-aside :width="isCollapse ? '64px' : '240px'" class="sidebar-container">
       <div class="logo-section" :class="{ collapsed: isCollapse }">
         <div class="logo-icon">
@@ -81,19 +192,57 @@ const handleMenuSelect = (index: string) => {
       <el-header class="top-header">
         <h1 class="page-title">{{ pageTitle }}</h1>
         <div class="header-actions">
-          <el-badge :value="3" :max="99">
-            <el-button :icon="'Bell'" circle class="action-btn" />
-          </el-badge>
-          <el-button :icon="'Setting'" circle class="action-btn" />
+          <el-popover
+            v-model:visible="showNotifications"
+            placement="bottom-end"
+            :width="420"
+            trigger="click"
+          >
+            <template #reference>
+              <el-badge :value="notificationCount" :max="99" :hidden="notificationCount === 0">
+                <el-button :icon="'Bell'" circle class="action-btn" />
+              </el-badge>
+            </template>
+            <div class="notif-popover">
+              <div class="notif-header">
+                <h3>🔔 下一步计划提醒</h3>
+                <el-tag size="small" type="primary" effect="dark" round>{{ notifications.length }} 条</el-tag>
+              </div>
+              <el-scrollbar max-height="380px">
+                <div class="notif-list">
+                  <div
+                    v-for="n in notifications"
+                    :key="n.id"
+                    class="notif-item"
+                    :class="'notif-' + n.urgency"
+                    @click="goToCustomer(n.id)"
+                  >
+                    <div class="notif-item-top">
+                      <span class="notif-customer">{{ n.customerName }}</span>
+                      <el-tag :type="n.urgencyType" size="small" effect="dark" round>{{ n.urgencyLabel }}</el-tag>
+                    </div>
+                    <div class="notif-action">下一步：{{ n.nextAction }}</div>
+                    <div class="notif-deadline">截止日期：{{ n.deadline }}</div>
+                  </div>
+                  <el-empty v-if="notifications.length === 0" description="暂无待办事项" :image-size="60" />
+                </div>
+              </el-scrollbar>
+            </div>
+          </el-popover>
+          <el-button :icon="'SwitchButton'" circle class="action-btn" @click="handleLogout" />
         </div>
       </el-header>
 
       <el-main class="main-content">
-        <router-view v-slot="{ Component }">
-          <transition name="page-fade" mode="out-in">
-            <component :is="Component" />
-          </transition>
-        </router-view>
+        <el-scrollbar class="main-scrollbar">
+          <div class="main-scroll-inner">
+            <router-view v-slot="{ Component }">
+              <transition name="page-fade" mode="out-in">
+                <component :is="Component" />
+              </transition>
+            </router-view>
+          </div>
+        </el-scrollbar>
       </el-main>
     </el-container>
   </el-container>
@@ -257,8 +406,16 @@ const handleMenuSelect = (index: string) => {
 
 .main-content {
   background: #f8fafc;
-  padding: 24px !important;
-  overflow-y: auto;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.main-scrollbar {
+  height: 100%;
+}
+
+.main-scroll-inner {
+  padding: 24px;
 }
 
 /* Page transition */
@@ -285,5 +442,91 @@ const handleMenuSelect = (index: string) => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* 通知弹窗 */
+.notif-popover {
+  max-height: 450px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.notif-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #f1f5f9;
+  margin-bottom: 8px;
+}
+
+.notif-header h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.notif-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notif-item {
+  padding: 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: #f8fafc;
+  border-left: 4px solid #e2e8f0;
+}
+
+.notif-item:hover {
+  background: #f1f5f9;
+  transform: translateX(2px);
+}
+
+.notif-overdue {
+  border-left-color: #ef4444;
+  background: #fef2f2;
+}
+
+.notif-today {
+  border-left-color: #ef4444;
+  background: #fef2f2;
+}
+
+.notif-imminent {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.notif-upcoming {
+  border-left-color: #6366f1;
+}
+
+.notif-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.notif-customer {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 0.88rem;
+}
+
+.notif-action {
+  font-size: 0.82rem;
+  color: #475569;
+  margin-bottom: 2px;
+}
+
+.notif-deadline {
+  font-size: 0.78rem;
+  color: #94a3b8;
 }
 </style>

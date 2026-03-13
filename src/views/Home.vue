@@ -3,6 +3,10 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getCustomers, saveCustomers, addCustomer, deleteCustomer } from '../utils/storage'
+import { getLocalPolicies } from '../utils/ai-service'
+import MarkdownIt from 'markdown-it'
+
+const md = new MarkdownIt({ html: true, linkify: true, breaks: true })
 
 const router = useRouter()
 
@@ -76,13 +80,29 @@ function copyPolicy(title, date) {
   ElMessage.success('话术已复制到剪贴板！')
 }
 
-// 快捷政策列表(首页显示4条)
-const quickPolicies = ref([
-  { id: 101, title: '2026年高新技术企业认定最新申报指南', tags: ['高新', '申报', '2026新规'], date: '2026-03-01' },
-  { id: 102, title: '关于进一步加大研发费用加计扣除力度的通知', tags: ['税务', '研发费用加计扣除', '补贴'], date: '2026-02-15' },
-  { id: 103, title: '重点产业专项资金补贴操作指引（上海）', tags: ['上海', '补贴', '资金补助'], date: '2026-01-20' },
-  { id: 104, title: '企业上市挂牌奖励及补贴政策汇总', tags: ['拟上市', '奖励'], date: '2025-11-10' }
-])
+// 快捷政策列表(首页显示4条) - 从真实政策数据中取
+const allPolicies = ref([])
+onMounted(() => {
+  allPolicies.value = getLocalPolicies()
+})
+const quickPolicies = computed(() => allPolicies.value.slice(0, 4))
+
+// 政策详情弹窗
+const showPolicyDetail = ref(false)
+const currentPolicy = ref(null)
+const policyContentHtml = computed(() => {
+  if (!currentPolicy.value) return ''
+  // 将 content 中的中文序号格式化为 markdown
+  let content = currentPolicy.value.content || ''
+  content = content.replace(/([一二三四五六七八九十]+)、/g, '\n### $1、')
+  content = content.replace(/(\d+)\./g, '\n$1.')
+  return md.render(content)
+})
+
+function openPolicyDetail(policy) {
+  currentPolicy.value = policy
+  showPolicyDetail.value = true
+}
 
 // 统计数据
 const stats = computed(() => {
@@ -197,44 +217,46 @@ function getFollowLabel(date) {
             />
           </template>
 
-          <div class="customer-list">
-            <div
-              v-for="item in filteredCustomers"
-              :key="item.id"
-              class="customer-item"
-              @click="router.push(`/customer/${item.id}`)"
-            >
-              <el-avatar class="customer-avatar" :size="42">
-                {{ item.name.slice(0, 2) }}
-              </el-avatar>
-              <div class="customer-info">
-                <div class="customer-name">{{ item.name }}</div>
-                <div class="customer-meta-info">
-                  <el-tag :type="getFollowStatus(item.lastFollow)" size="small" effect="plain">
-                    <el-icon><Clock /></el-icon> {{ getFollowLabel(item.lastFollow) }}
-                  </el-tag>
-                  <span class="industry-label">{{ item.industry }}</span>
+          <el-scrollbar max-height="400px">
+            <div class="customer-list">
+              <div
+                v-for="item in filteredCustomers"
+                :key="item.id"
+                class="customer-item"
+                @click="router.push(`/customer/${item.id}`)"
+              >
+                <el-avatar class="customer-avatar" :size="42">
+                  {{ item.name.slice(0, 2) }}
+                </el-avatar>
+                <div class="customer-info">
+                  <div class="customer-name">{{ item.name }}</div>
+                  <div class="customer-meta-info">
+                    <el-tag :type="getFollowStatus(item.lastFollow)" size="small" effect="plain">
+                      <el-icon><Clock /></el-icon> {{ getFollowLabel(item.lastFollow) }}
+                    </el-tag>
+                    <span class="industry-label">{{ item.industry }}</span>
+                  </div>
+                </div>
+                <div class="next-action-col">
+                  <div class="action-label">下一步</div>
+                  <div class="action-text">{{ item.nextAction }}</div>
+                </div>
+                <div class="item-actions">
+                  <el-button :icon="'ArrowRight'" circle size="small" />
+                  <el-button
+                    :icon="'Delete'"
+                    circle
+                    size="small"
+                    type="danger"
+                    plain
+                    @click.stop="handleDeleteCustomer(item)"
+                  />
                 </div>
               </div>
-              <div class="next-action-col">
-                <div class="action-label">下一步</div>
-                <div class="action-text">{{ item.nextAction }}</div>
-              </div>
-              <div class="item-actions">
-                <el-button :icon="'ArrowRight'" circle size="small" />
-                <el-button
-                  :icon="'Delete'"
-                  circle
-                  size="small"
-                  type="danger"
-                  plain
-                  @click.stop="handleDeleteCustomer(item)"
-                />
-              </div>
-            </div>
 
-            <el-empty v-if="filteredCustomers.length === 0" description="没有找到客户" />
-          </div>
+              <el-empty v-if="filteredCustomers.length === 0" description="没有找到客户" />
+            </div>
+          </el-scrollbar>
         </el-card>
       </el-col>
 
@@ -252,24 +274,26 @@ function getFollowLabel(date) {
             </div>
           </template>
 
-          <div class="policy-list">
-            <div v-for="p in quickPolicies" :key="p.id" class="policy-card-item">
-              <h4 class="policy-title" @click="router.push('/policy')">{{ p.title }}</h4>
-              <div class="policy-bottom">
-                <div class="policy-tags">
-                  <el-tag v-for="t in p.tags" :key="t" size="small" effect="plain" type="info">
-                    {{ t }}
-                  </el-tag>
-                </div>
-                <div class="policy-actions">
-                  <el-text type="info" size="small">{{ p.date }}</el-text>
-                  <el-button size="small" text type="primary" @click.stop="copyPolicy(p.title, p.date)">
-                    <el-icon><CopyDocument /></el-icon> 话术
-                  </el-button>
+          <el-scrollbar max-height="400px">
+            <div class="policy-list">
+              <div v-for="p in quickPolicies" :key="p.id" class="policy-card-item">
+                <h4 class="policy-title" @click="openPolicyDetail(p)">{{ p.title }}</h4>
+                <div class="policy-bottom">
+                  <div class="policy-tags">
+                    <el-tag v-for="t in p.tags" :key="t" size="small" effect="plain" type="info">
+                      {{ t }}
+                    </el-tag>
+                  </div>
+                  <div class="policy-actions">
+                    <el-text type="info" size="small">{{ p.date }}</el-text>
+                    <el-button size="small" text type="primary" @click.stop="copyPolicy(p.title, p.date)">
+                      <el-icon><CopyDocument /></el-icon> 话术
+                    </el-button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </el-scrollbar>
         </el-card>
       </el-col>
     </el-row>
@@ -297,6 +321,41 @@ function getFollowLabel(date) {
       <template #footer>
         <el-button @click="showAddCustomerDialog = false">取消</el-button>
         <el-button type="primary" @click="handleAddCustomer">确认创建</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 政策详情弹窗 -->
+    <el-dialog v-model="showPolicyDetail" :title="'📋 政策详情'" width="700px" top="5vh" class="policy-detail-dialog">
+      <div v-if="currentPolicy" class="policy-detail-content">
+        <h3 class="policy-detail-title">{{ currentPolicy.title }}</h3>
+        <div class="policy-detail-meta">
+          <el-tag size="small" effect="plain" type="primary">{{ currentPolicy.source }}</el-tag>
+          <el-tag size="small" effect="plain" type="info">{{ currentPolicy.date }}</el-tag>
+          <el-tag v-if="currentPolicy.category" size="small" effect="plain" type="warning">{{ currentPolicy.category }}</el-tag>
+          <el-tag v-if="currentPolicy.hot" size="small" effect="dark" type="danger">HOT</el-tag>
+        </div>
+        <el-divider />
+        <div v-if="currentPolicy.summary" class="policy-detail-summary">
+          <h4>📌 政策摘要</h4>
+          <p>{{ currentPolicy.summary }}</p>
+        </div>
+        <el-scrollbar max-height="45vh">
+          <div v-if="currentPolicy.content" class="policy-detail-body markdown-body" v-html="policyContentHtml"></div>
+        </el-scrollbar>
+        <div v-if="currentPolicy.tags" class="policy-detail-tags">
+          <el-tag v-for="tag in currentPolicy.tags" :key="tag" size="small" effect="plain" type="primary" style="margin: 2px 4px 2px 0">
+            #{{ tag }}
+          </el-tag>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showPolicyDetail = false">关闭</el-button>
+        <el-button type="primary" @click="copyPolicy(currentPolicy?.title, currentPolicy?.date)">
+          <el-icon><CopyDocument /></el-icon> 复制话术
+        </el-button>
+        <el-button type="primary" plain @click="showPolicyDetail = false; router.push('/policy')">
+          进入政策库查看更多
+        </el-button>
       </template>
     </el-dialog>
   </div>
@@ -396,8 +455,6 @@ function getFollowLabel(date) {
 
 /* 客户列表 */
 .customer-list {
-  max-height: 400px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -486,8 +543,6 @@ function getFollowLabel(date) {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: 400px;
-  overflow-y: auto;
 }
 
 .policy-card-item {
@@ -532,5 +587,78 @@ function getFollowLabel(date) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+/* 政策详情弹窗 */
+.policy-detail-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #1e293b;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.policy-detail-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.policy-detail-summary {
+  background: linear-gradient(to right, #f0f9ff, #f8fafc);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border-left: 4px solid #6366f1;
+}
+
+.policy-detail-summary h4 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 8px;
+}
+
+.policy-detail-summary p {
+  color: #475569;
+  line-height: 1.7;
+  font-size: 0.9rem;
+}
+
+.policy-detail-body {
+  margin-bottom: 16px;
+}
+
+.policy-detail-tags {
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* Markdown 渲染 */
+.markdown-body {
+  line-height: 1.8;
+  color: #334155;
+  font-size: 0.9rem;
+}
+
+.markdown-body :deep(h3) {
+  color: #1e293b;
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.markdown-body :deep(p) {
+  margin-bottom: 8px;
+}
+
+.markdown-body :deep(ol),
+.markdown-body :deep(ul) {
+  padding-left: 20px;
+}
+
+.markdown-body :deep(li) {
+  margin-bottom: 4px;
 }
 </style>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { ElMessage, ElNotification } from 'element-plus'
+import { useRouter } from 'vue-router'
 import MarkdownIt from 'markdown-it'
 import {
   getApiKey,
@@ -12,6 +13,9 @@ import {
   generateSalesScript,
   getLocalPolicies
 } from '../utils/ai-service'
+import { getCustomers } from '../utils/storage'
+
+const router = useRouter()
 
 const md = new MarkdownIt({
   html: true,
@@ -60,6 +64,7 @@ const policies = ref([])
 onMounted(() => {
   policies.value = getLocalPolicies()
   apiKeyInput.value = getApiKey()
+  customersList.value = getCustomers()
 })
 
 const filteredPolicies = computed(() => {
@@ -215,6 +220,75 @@ const radarStats = computed(() => {
   const totalTags = [...new Set(policies.value.flatMap(p => p.tags))].length
   return { hot, totalTags, total: policies.value.length }
 })
+
+// ========== 政策雷达匹配 ==========
+const customersList = ref([])
+const showRadarDialog = ref(false)
+
+// 匹配客户与政策的关联关系
+const radarMatches = computed(() => {
+  const matches = []
+  
+  for (const customer of customersList.value) {
+    const customerKeywords = [
+      ...(customer.tags || []),
+      customer.industry || ''
+    ].map(k => k.toLowerCase())
+    
+    for (const policy of policies.value) {
+      const policyKeywords = [
+        ...(policy.tags || []),
+        policy.category || ''
+      ].map(k => k.toLowerCase())
+      
+      // 计算匹配的关键词
+      const matched = []
+      for (const ck of customerKeywords) {
+        if (!ck) continue
+        for (const pk of policyKeywords) {
+          if (!pk) continue
+          if (ck.includes(pk) || pk.includes(ck)) {
+            matched.push(ck)
+            break
+          }
+        }
+      }
+      
+      if (matched.length > 0) {
+        // 计算匹配度分数
+        const score = Math.min(100, Math.round((matched.length / Math.max(policyKeywords.length, 1)) * 100))
+        matches.push({
+          customer,
+          policy,
+          matchedKeywords: [...new Set(matched)],
+          score
+        })
+      }
+    }
+  }
+  
+  // 按匹配度排序
+  return matches.sort((a, b) => b.score - a.score)
+})
+
+const matchedCustomerCount = computed(() => {
+  return new Set(radarMatches.value.map(m => m.customer.id)).size
+})
+
+function openRadarDialog() {
+  showRadarDialog.value = true
+}
+
+function goToCustomerFromRadar(customerId) {
+  showRadarDialog.value = false
+  router.push(`/customer/${customerId}`)
+}
+
+function copyRadarScript(match) {
+  const text = `客户您好，跟您同步一条与您企业强相关的最新政策：\n【${match.policy.title}】(发布于 ${match.policy.date})\n匹配关键词：${match.matchedKeywords.join('、')}\n详情我们可以电话沟通。`
+  navigator.clipboard.writeText(text)
+  ElMessage.success('话术已复制到剪贴板！')
+}
 </script>
 
 <template>
@@ -306,7 +380,7 @@ const radarStats = computed(() => {
               <h3>政策雷达匹配</h3>
             </div>
             <el-text class="radar-desc" size="small">
-              系统发现您有 12 家客户可能符合最新补贴政策
+              系统发现您有 {{ matchedCustomerCount }} 家客户可能符合最新补贴政策
             </el-text>
 
             <div class="radar-stats">
@@ -326,7 +400,7 @@ const radarStats = computed(() => {
               </div>
             </div>
 
-            <el-button class="radar-btn" round size="default">
+            <el-button class="radar-btn" round size="default" @click="openRadarDialog">
               <el-icon>
                 <DataAnalysis />
               </el-icon> 查看推荐跟进名单
@@ -367,15 +441,17 @@ const radarStats = computed(() => {
         </div>
       </template>
 
-      <div ref="aiPanelRef" class="ai-result-body">
-        <div v-if="aiResult" class="markdown-body" v-html="aiResultHtml"></div>
-        <div v-else-if="aiSearching" class="ai-loading">
-          <el-icon class="is-loading" :size="24">
-            <Loading />
-          </el-icon>
-          <el-text type="info">AI 正在分析政策信息，请稍候...</el-text>
+      <el-scrollbar max-height="500px">
+        <div ref="aiPanelRef" class="ai-result-body">
+          <div v-if="aiResult" class="markdown-body" v-html="aiResultHtml"></div>
+          <div v-else-if="aiSearching" class="ai-loading">
+            <el-icon class="is-loading" :size="24">
+              <Loading />
+            </el-icon>
+            <el-text type="info">AI 正在分析政策信息，请稍候...</el-text>
+          </div>
         </div>
-      </div>
+      </el-scrollbar>
     </el-card>
 
     <!-- 政策列表 -->
@@ -492,15 +568,17 @@ const radarStats = computed(() => {
         </div>
       </div>
       <el-divider />
-      <div class="explain-body">
-        <div v-if="policyExplainResult" class="markdown-body" v-html="policyExplainHtml"></div>
-        <div v-else-if="explaining" class="ai-loading">
-          <el-icon class="is-loading" :size="24">
-            <Loading />
-          </el-icon>
-          <el-text type="info">AI 正在解读政策，请稍候...</el-text>
+      <el-scrollbar max-height="60vh">
+        <div class="explain-body">
+          <div v-if="policyExplainResult" class="markdown-body" v-html="policyExplainHtml"></div>
+          <div v-else-if="explaining" class="ai-loading">
+            <el-icon class="is-loading" :size="24">
+              <Loading />
+            </el-icon>
+            <el-text type="info">AI 正在解读政策，请稍候...</el-text>
+          </div>
         </div>
-      </div>
+      </el-scrollbar>
       <template #footer>
         <el-button @click="showDetailDialog = false">关闭</el-button>
         <el-button type="primary" @click="copyToClipboard(policyExplainResult)" :disabled="!policyExplainResult">
@@ -527,15 +605,17 @@ const radarStats = computed(() => {
         </el-input>
       </div>
       <el-divider />
-      <div class="script-body">
-        <div v-if="scriptResult" class="markdown-body" v-html="scriptHtml"></div>
-        <div v-else-if="generatingScript" class="ai-loading">
-          <el-icon class="is-loading" :size="24">
-            <Loading />
-          </el-icon>
-          <el-text type="info">AI 正在生成话术，请稍候...</el-text>
+      <el-scrollbar max-height="50vh">
+        <div class="script-body">
+          <div v-if="scriptResult" class="markdown-body" v-html="scriptHtml"></div>
+          <div v-else-if="generatingScript" class="ai-loading">
+            <el-icon class="is-loading" :size="24">
+              <Loading />
+            </el-icon>
+            <el-text type="info">AI 正在生成话术，请稍候...</el-text>
+          </div>
         </div>
-      </div>
+      </el-scrollbar>
       <template #footer>
         <el-button @click="showScriptDialog = false">关闭</el-button>
         <el-button type="primary" @click="copyToClipboard(scriptResult)" :disabled="!scriptResult">
@@ -570,6 +650,71 @@ const radarStats = computed(() => {
       <template #footer>
         <el-button @click="showSubscribeDialog = false">取消</el-button>
         <el-button type="primary" @click="handleSubscribe">确认订阅</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 政策雷达匹配结果 -->
+    <el-dialog v-model="showRadarDialog" title="🎯 政策雷达 - 客户匹配推荐" width="800px" top="5vh">
+      <div class="radar-dialog-summary">
+        <div class="radar-summary-item">
+          <span class="radar-summary-number">{{ matchedCustomerCount }}</span>
+          <span class="radar-summary-label">匹配客户</span>
+        </div>
+        <div class="radar-summary-item">
+          <span class="radar-summary-number">{{ radarMatches.length }}</span>
+          <span class="radar-summary-label">匹配组合</span>
+        </div>
+        <div class="radar-summary-item">
+          <span class="radar-summary-number">{{ radarStats.total }}</span>
+          <span class="radar-summary-label">政策总数</span>
+        </div>
+      </div>
+      <el-divider />
+      <el-scrollbar max-height="55vh">
+        <div class="radar-match-list">
+          <div v-for="(match, index) in radarMatches" :key="index" class="radar-match-item">
+            <div class="radar-match-left">
+              <div class="radar-match-customer">
+                <el-avatar :size="36" class="radar-avatar">
+                  {{ match.customer.name.slice(0, 2) }}
+                </el-avatar>
+                <div>
+                  <div class="radar-customer-name">{{ match.customer.name }}</div>
+                  <el-text type="info" size="small">{{ match.customer.industry }}</el-text>
+                </div>
+              </div>
+              <div class="radar-match-policy">
+                <el-icon><ArrowRight /></el-icon>
+                <div>
+                  <div class="radar-policy-name">{{ match.policy.title }}</div>
+                  <div class="radar-match-keywords">
+                    <el-tag v-for="kw in match.matchedKeywords" :key="kw" size="small" type="success" effect="plain">
+                      {{ kw }}
+                    </el-tag>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="radar-match-right">
+              <div class="radar-score">
+                <el-progress :percentage="match.score" :stroke-width="6" :color="match.score >= 70 ? '#10b981' : match.score >= 40 ? '#f59e0b' : '#94a3b8'" />
+                <el-text size="small" type="info">匹配度</el-text>
+              </div>
+              <div class="radar-match-actions">
+                <el-button size="small" type="primary" text @click="goToCustomerFromRadar(match.customer.id)">
+                  <el-icon><ArrowRight /></el-icon> 查看客户
+                </el-button>
+                <el-button size="small" type="primary" text @click="copyRadarScript(match)">
+                  <el-icon><CopyDocument /></el-icon> 复制话术
+                </el-button>
+              </div>
+            </div>
+          </div>
+          <el-empty v-if="radarMatches.length === 0" description="暂无匹配结果" />
+        </div>
+      </el-scrollbar>
+      <template #footer>
+        <el-button @click="showRadarDialog = false">关闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -778,8 +923,6 @@ const radarStats = computed(() => {
 }
 
 .ai-result-body {
-  max-height: 500px;
-  overflow-y: auto;
   padding: 4px;
 }
 
@@ -960,8 +1103,6 @@ const radarStats = computed(() => {
 }
 
 .explain-body {
-  max-height: 60vh;
-  overflow-y: auto;
 }
 
 /* 话术弹窗 */
@@ -974,11 +1115,124 @@ const radarStats = computed(() => {
 }
 
 .script-body {
-  max-height: 50vh;
-  overflow-y: auto;
 }
 
 .api-key-alert {
   margin-bottom: 8px;
+}
+
+/* 政策雷达匹配弹窗 */
+.radar-dialog-summary {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  padding: 16px 0;
+}
+
+.radar-summary-item {
+  text-align: center;
+}
+
+.radar-summary-number {
+  display: block;
+  font-size: 2rem;
+  font-weight: 800;
+  color: #6366f1;
+  line-height: 1.2;
+}
+
+.radar-summary-label {
+  font-size: 0.82rem;
+  color: #94a3b8;
+}
+
+.radar-match-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.radar-match-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: linear-gradient(to right, #f8fafc, #fff);
+  transition: all 0.2s;
+}
+
+.radar-match-item:hover {
+  border-color: #c7d2fe;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.08);
+}
+
+.radar-match-left {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.radar-match-customer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.radar-avatar {
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  color: white;
+  font-weight: 700;
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+.radar-customer-name {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 0.9rem;
+}
+
+.radar-match-policy {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-left: 46px;
+  color: #94a3b8;
+}
+
+.radar-policy-name {
+  font-size: 0.82rem;
+  color: #475569;
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.radar-match-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.radar-match-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 120px;
+}
+
+.radar-score {
+  width: 100%;
+  text-align: center;
+}
+
+.radar-match-actions {
+  display: flex;
+  gap: 4px;
 }
 </style>

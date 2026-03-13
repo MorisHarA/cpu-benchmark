@@ -44,6 +44,56 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* 全局隐藏原生滚动条 */
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+/* 定制 el-scrollbar 样式 */
+.el-scrollbar__bar {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.el-scrollbar:hover .el-scrollbar__bar,
+.el-scrollbar:active .el-scrollbar__bar {
+  opacity: 1;
+}
+
+.el-scrollbar__thumb {
+  background-color: rgba(144, 147, 153, 0.3) !important;
+  border-radius: 6px !important;
+  transition: background-color 0.2s;
+}
+
+.el-scrollbar__thumb:hover {
+  background-color: rgba(144, 147, 153, 0.5) !important;
+}
+
+/* 修复 el-tag 内 icon 和文字换行问题 */
+.el-tag {
+  white-space: nowrap;
+}
+
+.el-tag .el-icon {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-right: 2px;
+}
+
+.el-tag .el-tag__content {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 button {
   cursor: pointer;
   border: none;
